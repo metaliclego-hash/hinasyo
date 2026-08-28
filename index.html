@@ -425,33 +425,40 @@ function removeResident(id){
 }
 
 /* ---- みんなの安否情報(限定項目) ---- */
-let othersSort = "shelter"; // shelter | name
 let othersSortDir = 1; // 1 asc, -1 desc
+let othersSearch = "";
+let othersFilterShelter = "all";
 
 function othersHtml(){
-  const sorted = db.residents.slice().sort((a,b)=>{
-    let av, bv;
-    if(othersSort === "shelter"){ av = shelterName(a.shelterId); bv = shelterName(b.shelterId); }
-    else { av = a.name; bv = b.name; }
-    return av.localeCompare(bv, "ja") * othersSortDir;
-  });
-  const rows = sorted.map(r => `
+  let filtered = db.residents.filter(r =>
+    (othersFilterShelter === "all" || r.shelterId === othersFilterShelter) &&
+    (!othersSearch || r.name.toLowerCase().includes(othersSearch.toLowerCase()))
+  );
+  filtered.sort((a,b) => a.name.localeCompare(b.name, "ja") * othersSortDir);
+
+  const rows = filtered.map(r => `
     <tr>
       <td>${escapeHtml(r.name)}</td>
       <td>${shelterName(r.shelterId)}</td>
       <td>${statusBadge(r.status)}</td>
       <td>${homeBadge(r.isHome)}</td>
     </tr>
-  `).join("") || `<tr><td colspan="4" class="small">登録された安否情報はまだありません。</td></tr>`;
+  `).join("") || `<tr><td colspan="4" class="small">該当する安否情報がありません。</td></tr>`;
   const arrow = dir => dir===1 ? "▲" : "▼";
+  const shelterOptions = `<option value="all">すべての避難所</option>` +
+    db.shelters.map(s=>`<option value="${s.id}" ${othersFilterShelter===s.id ? 'selected':''}>${s.name}</option>`).join("");
   return `
     <div class="card">
       <h2>みんなの安否情報</h2>
       <p class="small">氏名・避難場所・被災状況・帰宅状況のみ表示されます。連絡先や備考などの個人情報は表示されません。</p>
+      <div class="row">
+        <div><label>氏名で検索</label><input type="text" id="others-search" value="${escapeHtml(othersSearch)}" oninput="setOthersSearch(this.value)" placeholder="氏名を入力"></div>
+        <div><label>避難所で絞り込む</label><select onchange="setOthersFilterShelter(this.value)">${shelterOptions}</select></div>
+      </div>
       <table>
         <thead><tr>
-          <th style="cursor:pointer;" onclick="sortOthers('name')">氏名 ${othersSort==='name' ? arrow(othersSortDir) : ''}</th>
-          <th style="cursor:pointer;" onclick="sortOthers('shelter')">避難場所 ${othersSort==='shelter' ? arrow(othersSortDir) : ''}</th>
+          <th style="cursor:pointer;" onclick="sortOthers()">氏名 ${arrow(othersSortDir)}</th>
+          <th>避難場所</th>
           <th>被災状況</th><th>所在</th>
         </tr></thead>
         <tbody>${rows}</tbody>
@@ -459,9 +466,16 @@ function othersHtml(){
     </div>
   `;
 }
-function sortOthers(key){
-  if(othersSort === key){ othersSortDir *= -1; }
-  else { othersSort = key; othersSortDir = 1; }
+function setOthersSearch(v){
+  othersSearch = v;
+  const caret = document.getElementById("others-search").selectionStart;
+  render();
+  const input = document.getElementById("others-search");
+  if(input){ input.focus(); input.setSelectionRange(caret, caret); }
+}
+function setOthersFilterShelter(v){ othersFilterShelter = v; render(); }
+function sortOthers(){
+  othersSortDir *= -1;
   render();
 }
 
