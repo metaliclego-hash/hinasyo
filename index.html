@@ -456,7 +456,13 @@ function othersHtml(){
       <h2>みんなの安否情報</h2>
       <p class="small">氏名・避難場所・被災状況・帰宅状況のみ表示されます。連絡先や備考などの個人情報は表示されません。</p>
       <div class="row">
-        <div><label>氏名で検索</label><input type="text" id="others-search" value="${escapeHtml(othersSearch)}" oninput="onOthersSearchInput(event)" oncompositionend="onOthersSearchInput(event)" placeholder="氏名を入力"></div>
+        <div>
+          <label>氏名で検索</label>
+          <div style="display:flex;gap:8px;">
+            <input type="text" id="others-search" value="${escapeHtml(othersSearch)}" onkeydown="if(event.key==='Enter'){ doOthersSearch(); }" placeholder="氏名を入力してEnter">
+            <button class="btn" style="margin:0;white-space:nowrap;" onclick="doOthersSearch()">検索</button>
+          </div>
+        </div>
         <div><label>避難所で絞り込む</label><select onchange="setOthersFilterShelter(this.value)">${shelterOptions}</select></div>
       </div>
       <table>
@@ -470,16 +476,9 @@ function othersHtml(){
     </div>
   `;
 }
-function onOthersSearchInput(e){
-  if(e.isComposing) return; // 日本語入力の変換確定前は再描画しない(IMEが壊れるため)
-  setOthersSearch(e.target.value);
-}
-function setOthersSearch(v){
-  othersSearch = v;
-  const caret = document.getElementById("others-search").selectionStart;
+function doOthersSearch(){
+  othersSearch = document.getElementById("others-search").value;
   render();
-  const input = document.getElementById("others-search");
-  if(input){ input.focus(); input.setSelectionRange(caret, caret); }
 }
 function setOthersFilterShelter(v){ othersFilterShelter = v; render(); }
 function sortOthers(){
