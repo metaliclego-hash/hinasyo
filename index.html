@@ -1,0 +1,696 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>避難所運営システム(デモ)</title>
+<style>
+  :root{
+    --primary:#2563eb;
+    --primary-dark:#1d4ed8;
+    --danger:#dc2626;
+    --ok:#16a34a;
+    --warn:#d97706;
+    --bg:#f3f4f6;
+    --card:#ffffff;
+    --border:#e5e7eb;
+    --text:#111827;
+    --muted:#6b7280;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    font-family:"Hiragino Kaku Gothic ProN","Yu Gothic",sans-serif;
+    background:var(--bg);
+    color:var(--text);
+  }
+  header{
+    background:var(--primary);
+    color:#fff;
+    padding:14px 20px;
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+  }
+  header h1{font-size:18px;margin:0;}
+  header .userinfo{font-size:13px;display:flex;align-items:center;gap:10px;}
+  header button{
+    background:#fff;color:var(--primary);border:none;border-radius:6px;
+    padding:6px 12px;font-size:13px;cursor:pointer;
+  }
+  .container{max-width:960px;margin:0 auto;padding:16px;}
+  .card{
+    background:var(--card);
+    border:1px solid var(--border);
+    border-radius:10px;
+    padding:18px;
+    margin-bottom:16px;
+  }
+  .card h2{margin-top:0;font-size:16px;border-left:4px solid var(--primary);padding-left:8px;}
+  label{display:block;font-size:13px;color:var(--muted);margin-bottom:4px;margin-top:10px;}
+  input[type=text],input[type=email],input[type=tel],input[type=password],input[type=number],select,textarea{
+    width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:14px;
+  }
+  textarea{resize:vertical;min-height:60px;}
+  .row{display:flex;gap:12px;flex-wrap:wrap;}
+  .row > div{flex:1;min-width:140px;}
+  .btn{
+    background:var(--primary);color:#fff;border:none;border-radius:6px;
+    padding:10px 16px;font-size:14px;cursor:pointer;margin-top:14px;
+  }
+  .btn:hover{background:var(--primary-dark);}
+  .btn.secondary{background:#6b7280;}
+  .btn.danger{background:var(--danger);}
+  .tabs{display:flex;gap:6px;margin-bottom:16px;flex-wrap:wrap;}
+  .tab{
+    padding:8px 14px;border-radius:20px;background:#e5e7eb;cursor:pointer;font-size:13px;
+  }
+  .tab.active{background:var(--primary);color:#fff;}
+  table{width:100%;border-collapse:collapse;font-size:13px;}
+  th,td{border:1px solid var(--border);padding:8px;text-align:left;}
+  th{background:#f9fafb;}
+  .badge{padding:2px 8px;border-radius:12px;font-size:12px;color:#fff;}
+  .badge.ok{background:var(--ok);}
+  .badge.warn{background:var(--warn);}
+  .badge.danger{background:var(--danger);}
+  .badge.unknown{background:var(--muted);}
+  .badge.care{background:#7c3aed;}
+  .shelter-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;}
+  .shelter-box{border:1px solid var(--border);border-radius:8px;padding:12px;background:#f9fafb;}
+  .shelter-box h3{margin:0 0 6px 0;font-size:14px;}
+  .bar-bg{background:#e5e7eb;border-radius:6px;height:10px;overflow:hidden;margin-top:6px;}
+  .bar-fill{height:100%;background:var(--primary);}
+  .checkbox-group{display:flex;flex-wrap:wrap;gap:10px;margin-top:8px;}
+  .checkbox-group label{display:flex;align-items:center;gap:4px;font-size:13px;color:var(--text);margin:0;}
+  .checkbox-group input{width:auto;}
+  .hidden{display:none !important;}
+  .error{color:var(--danger);font-size:13px;margin-top:8px;}
+  .small{font-size:12px;color:var(--muted);}
+  .family-item{border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:10px;position:relative;background:#fafafa;}
+  .family-item .remove{position:absolute;top:8px;right:8px;background:var(--danger);color:#fff;border:none;border-radius:4px;padding:2px 8px;font-size:12px;cursor:pointer;}
+  .auth-wrap{max-width:400px;margin:60px auto;}
+  .link-btn{background:none;border:none;color:var(--primary);cursor:pointer;font-size:13px;padding:0;}
+</style>
+</head>
+<body>
+
+<div id="app"><p style="text-align:center;margin-top:60px;color:#6b7280;">読み込み中...</p></div>
+
+<!-- Firebase (Firestore) SDK -->
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
+
+<script>
+/* ===================== Firebase設定 =====================
+   Firebaseコンソール(https://console.firebase.google.com)でプロジェクトを作成し、
+   「プロジェクトの設定」>「マイアプリ」>「ウェブアプリを追加」で取得した設定値に置き換えてください。
+*/
+const firebaseConfig = {
+  apiKey: "YOUR_API_KEY",
+  authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
+  projectId: "YOUR_PROJECT_ID",
+  storageBucket: "YOUR_PROJECT_ID.appspot.com",
+  messagingSenderId: "YOUR_SENDER_ID",
+  appId: "YOUR_APP_ID",
+};
+firebase.initializeApp(firebaseConfig);
+const firestore = firebase.firestore();
+const stateDocRef = firestore.collection("app").doc("state");
+
+/* ===================== データ層 (Firestore) =====================
+   アプリ全体のデータを1つのドキュメントにまとめて保存し、
+   onSnapshotで他の端末からの変更もリアルタイムに反映する。
+*/
+const INITIAL_DB = {
+  users: [],
+  residents: [],
+  supplyRequests: [],
+  shelters: [
+    {id:"A", name:"避難所A", capacity:50},
+    {id:"B", name:"避難所B", capacity:80},
+    {id:"C", name:"避難所C", capacity:30},
+    {id:"D", name:"避難所D", capacity:100},
+  ]
+};
+let db = null;
+
+stateDocRef.onSnapshot(snap => {
+  if(snap.exists){
+    db = snap.data();
+  } else {
+    db = INITIAL_DB;
+    stateDocRef.set(db);
+  }
+  render();
+}, err => {
+  document.getElementById("app").innerHTML =
+    `<p style="text-align:center;margin-top:60px;color:#dc2626;">Firebaseに接続できませんでした。firebaseConfigの設定を確認してください。<br><span style="font-size:12px;color:#6b7280;">${err.message}</span></p>`;
+});
+
+function saveDB(db){ stateDocRef.set(db); }
+
+let session = null; // {type:"user", userId} or {type:"admin"}
+
+const STATUS_OPTIONS = [
+  {v:"無事", cls:"ok"},
+  {v:"軽傷", cls:"warn"},
+  {v:"重傷", cls:"danger"},
+  {v:"安否不明", cls:"unknown"},
+];
+const SUPPLY_ITEMS = ["飲料水","食料","毛布・寝具","医薬品","おむつ・生理用品","トイレ用品","携帯充電器","その他"];
+const CARE_TAGS = ["高齢者","障がい","妊産婦","乳幼児連れ","その他"];
+
+function uid(prefix){ return prefix + "_" + Math.random().toString(36).slice(2,9); }
+function statusBadge(status){
+  const opt = STATUS_OPTIONS.find(o=>o.v===status) || STATUS_OPTIONS[3];
+  return `<span class="badge ${opt.cls}">${status}</span>`;
+}
+
+/* ===================== ルーティング / 描画 ===================== */
+const app = document.getElementById("app");
+
+function render(){
+  if(!session){
+    renderAuth();
+  } else if(session.type === "admin"){
+    renderAdmin();
+  } else {
+    renderUser();
+  }
+}
+
+/* ---------- 認証画面 ---------- */
+let authMode = "login"; // login | signup
+function renderAuth(){
+  app.innerHTML = `
+    <header><h1>避難所運営システム(デモ)</h1><div></div></header>
+    <div class="container">
+      <div class="auth-wrap card">
+        <div class="tabs">
+          <div class="tab ${authMode==='login'?'active':''}" onclick="setAuthMode('login')">ログイン</div>
+          <div class="tab ${authMode==='signup'?'active':''}" onclick="setAuthMode('signup')">新規登録</div>
+        </div>
+        ${authMode==='login' ? loginFormHtml() : signupFormHtml()}
+        <div id="auth-error" class="error"></div>
+        <p class="small">管理者ログイン: ユーザー名 <b>admin</b> / パスワード <b>admin</b></p>
+      </div>
+    </div>
+  `;
+}
+function loginFormHtml(){
+  return `
+    <label>メールアドレス or 電話番号 (管理者は "admin")</label>
+    <input type="text" id="login-id" placeholder="example@mail.com または admin">
+    <label>パスワード</label>
+    <input type="password" id="login-pw" placeholder="4文字以上">
+    <button class="btn" onclick="doLogin()">ログイン</button>
+  `;
+}
+function signupFormHtml(){
+  return `
+    <label>メールアドレス</label>
+    <input type="email" id="signup-email" placeholder="example@mail.com">
+    <label>電話番号(どちらか入力でOK)</label>
+    <input type="tel" id="signup-phone" placeholder="090xxxxxxxx">
+    <label>パスワード(4文字以上)</label>
+    <input type="password" id="signup-pw" placeholder="4文字以上">
+    <button class="btn" onclick="doSignup()">登録する</button>
+  `;
+}
+function setAuthMode(m){ authMode = m; render(); }
+
+function doLogin(){
+  const idVal = document.getElementById("login-id").value.trim();
+  const pw = document.getElementById("login-pw").value;
+  if(idVal === "admin" && pw === "admin"){
+    session = {type:"admin"};
+    render();
+    return;
+  }
+  const user = db.users.find(u => (u.email===idVal || u.phone===idVal) && u.password===pw);
+  if(!user){
+    document.getElementById("auth-error").textContent = "ID またはパスワードが違います。";
+    return;
+  }
+  session = {type:"user", userId:user.id};
+  render();
+}
+function doSignup(){
+  const email = document.getElementById("signup-email").value.trim();
+  const phone = document.getElementById("signup-phone").value.trim();
+  const pw = document.getElementById("signup-pw").value;
+  const err = document.getElementById("auth-error");
+  if(!email && !phone){ err.textContent = "メールか電話番号のどちらかを入力してください。"; return; }
+  if(pw.length < 4){ err.textContent = "パスワードは4文字以上にしてください。"; return; }
+  if(db.users.some(u => (email && u.email===email) || (phone && u.phone===phone))){
+    err.textContent = "すでに登録されているメール/電話番号です。";
+    return;
+  }
+  const user = {id:uid("u"), email, phone, password:pw};
+  db.users.push(user);
+  saveDB(db);
+  session = {type:"user", userId:user.id};
+  render();
+}
+function logout(){ session = null; render(); }
+
+/* ---------- ユーザー画面 ---------- */
+let userTab = "anpi"; // anpi | others | shelters
+let editingResidentId = null;
+function currentUser(){ return db.users.find(u=>u.id===session.userId); }
+
+function renderUser(){
+  const user = currentUser();
+  app.innerHTML = `
+    <header>
+      <h1>避難所運営システム</h1>
+      <div class="userinfo">
+        <span>${user.email || user.phone}</span>
+        <button onclick="logout()">ログアウト</button>
+      </div>
+    </header>
+    <div class="container">
+      <div class="tabs">
+        <div class="tab ${userTab==='anpi'?'active':''}" onclick="setUserTab('anpi')">安否情報</div>
+        <div class="tab ${userTab==='others'?'active':''}" onclick="setUserTab('others')">みんなの安否情報</div>
+        <div class="tab ${userTab==='shelters'?'active':''}" onclick="setUserTab('shelters')">避難所の空き状況</div>
+      </div>
+      <div id="tab-content"></div>
+    </div>
+  `;
+  const content = document.getElementById("tab-content");
+  if(userTab==='anpi') content.innerHTML = anpiFormHtml() + supplyHtml();
+  if(userTab==='others') content.innerHTML = othersHtml();
+  if(userTab==='shelters') content.innerHTML = sheltersHtml();
+}
+function setUserTab(t){ userTab = t; editingResidentId = null; render(); }
+
+/* ---- 安否情報入力(本人+家族) ---- */
+function anpiFormHtml(){
+  const mine = db.residents.filter(r=>r.userId===session.userId);
+  const shelterOptions = db.shelters.map(s=>`<option value="${s.id}">${s.name}</option>`).join("");
+  const statusOptions = STATUS_OPTIONS.map(o=>`<option value="${o.v}">${o.v}</option>`).join("");
+  const editing = editingResidentId ? db.residents.find(r=>r.id===editingResidentId) : null;
+
+  let list = mine.map(r => `
+    <div class="family-item">
+      <div style="position:absolute;top:8px;right:8px;">
+        <button class="remove" style="background:var(--primary);position:static;" onclick="editResident('${r.id}')">編集</button>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+        <button class="btn ${r.isHome ? 'secondary' : ''}" style="margin:0;" onclick="toggleHome('${r.id}')">
+          ${r.isHome ? '🏠 帰宅済み(タップで取り消す)' : '🏠 自宅に帰宅したらタップ'}
+        </button>
+      </div>
+      <div class="row">
+        <div><label>氏名</label><input type="text" value="${r.name}" disabled></div>
+        <div><label>年齢</label><input type="text" value="${r.age}" disabled></div>
+        <div><label>性別</label><input type="text" value="${r.gender}" disabled></div>
+      </div>
+      <div class="row">
+        <div><label>避難所</label><input type="text" value="${shelterName(r.shelterId)}" disabled></div>
+        <div><label>被災状況</label>${statusBadge(r.status)}</div>
+        <div><label>連絡先</label><input type="text" value="${r.phone||'-'}" disabled></div>
+      </div>
+      <div class="row">
+        <div><label>要配慮者</label>${careBadges(r.careTags)}</div>
+      </div>
+      ${r.note ? `<div class="small">備考: ${escapeHtml(r.note)}</div>` : ""}
+      <div style="text-align:right;margin-top:8px;">
+        <button class="link-btn" onclick="removeResident('${r.id}')">この情報を削除する</button>
+      </div>
+    </div>
+  `).join("") || `<p class="small">まだ登録された安否情報がありません。</p>`;
+
+  return `
+    <div class="card">
+      <h2>登録済みの安否情報</h2>
+      ${list}
+    </div>
+    <div class="card" id="resident-form">
+      <h2>${editing ? "安否情報を編集する" : "安否情報を登録する(本人・ご家族)"}</h2>
+      <div class="row">
+        <div><label>氏名</label><input type="text" id="f-name" value="${editing ? escapeHtml(editing.name) : ''}"></div>
+        <div><label>年齢</label><input type="number" id="f-age" min="0" value="${editing ? editing.age : ''}"></div>
+        <div>
+          <label>性別</label>
+          <select id="f-gender">
+            <option value="男性" ${editing && editing.gender==='男性' ? 'selected':''}>男性</option>
+            <option value="女性" ${editing && editing.gender==='女性' ? 'selected':''}>女性</option>
+            <option value="その他" ${editing && editing.gender==='その他' ? 'selected':''}>その他</option>
+          </select>
+        </div>
+      </div>
+      <div class="row">
+        <div>
+          <label>避難所</label>
+          <select id="f-shelter">${db.shelters.map(s=>`<option value="${s.id}" ${editing && editing.shelterId===s.id ? 'selected':''}>${s.name}</option>`).join("")}</select>
+        </div>
+        <div>
+          <label>被災状況</label>
+          <select id="f-status">${STATUS_OPTIONS.map(o=>`<option value="${o.v}" ${editing && editing.status===o.v ? 'selected':''}>${o.v}</option>`).join("")}</select>
+        </div>
+        <div><label>連絡先(任意)</label><input type="tel" id="f-phone" value="${editing ? escapeHtml(editing.phone||'') : ''}"></div>
+      </div>
+      <label>要配慮者(該当するものを選択、複数可)</label>
+      <div class="checkbox-group">
+        ${CARE_TAGS.map(tag => `<label><input type="checkbox" name="f-care-tag" value="${tag}" ${editing && editing.careTags && editing.careTags.includes(tag) ? 'checked':''}> ${tag}</label>`).join("")}
+      </div>
+      <label>備考(任意)</label>
+      <textarea id="f-note" placeholder="持病、必要な支援など">${editing ? escapeHtml(editing.note||'') : ''}</textarea>
+      <button class="btn" onclick="saveResident()">${editing ? "更新する" : "登録する"}</button>
+      ${editing ? `<button class="btn secondary" onclick="cancelEditResident()">キャンセル</button>` : ""}
+      <div id="anpi-error" class="error"></div>
+    </div>
+  `;
+}
+function shelterName(id){ const s = db.shelters.find(s=>s.id===id); return s? s.name : id; }
+function homeBadge(isHome){
+  return isHome ? `<span class="badge ok">帰宅済み</span>` : `<span class="badge unknown">避難所に滞在中</span>`;
+}
+function careBadges(tags){
+  if(!tags || tags.length===0) return `<span class="small">-</span>`;
+  return tags.map(t=>`<span class="badge care">${t}</span>`).join(" ");
+}
+
+function saveResident(){
+  const name = document.getElementById("f-name").value.trim();
+  if(!name){ document.getElementById("anpi-error").textContent = "氏名を入力してください。"; return; }
+  const careTags = Array.from(document.querySelectorAll('input[name="f-care-tag"]:checked')).map(el=>el.value);
+  const data = {
+    name,
+    age: document.getElementById("f-age").value,
+    gender: document.getElementById("f-gender").value,
+    shelterId: document.getElementById("f-shelter").value,
+    status: document.getElementById("f-status").value,
+    phone: document.getElementById("f-phone").value.trim(),
+    careTags,
+    note: document.getElementById("f-note").value.trim(),
+  };
+  if(editingResidentId){
+    const r = db.residents.find(r=>r.id===editingResidentId);
+    Object.assign(r, data);
+  } else {
+    db.residents.push({ id: uid("r"), userId: session.userId, isHome:false, ...data });
+  }
+  editingResidentId = null;
+  saveDB(db);
+  render();
+}
+function toggleHome(id){
+  const r = db.residents.find(r=>r.id===id);
+  r.isHome = !r.isHome;
+  saveDB(db);
+  render();
+}
+function editResident(id){
+  editingResidentId = id;
+  render();
+  const formEl = document.getElementById("resident-form");
+  if(formEl) formEl.scrollIntoView({behavior:"smooth", block:"start"});
+}
+function cancelEditResident(){
+  editingResidentId = null;
+  render();
+}
+function removeResident(id){
+  if(!confirm("この安否情報を削除しますか？")) return;
+  if(editingResidentId===id) editingResidentId = null;
+  db.residents = db.residents.filter(r=>r.id!==id);
+  saveDB(db);
+  render();
+}
+
+/* ---- みんなの安否情報(限定項目) ---- */
+let othersSort = "shelter"; // shelter | name
+let othersSortDir = 1; // 1 asc, -1 desc
+
+function othersHtml(){
+  const sorted = db.residents.slice().sort((a,b)=>{
+    let av, bv;
+    if(othersSort === "shelter"){ av = shelterName(a.shelterId); bv = shelterName(b.shelterId); }
+    else { av = a.name; bv = b.name; }
+    return av.localeCompare(bv, "ja") * othersSortDir;
+  });
+  const rows = sorted.map(r => `
+    <tr>
+      <td>${escapeHtml(r.name)}</td>
+      <td>${shelterName(r.shelterId)}</td>
+      <td>${statusBadge(r.status)}</td>
+      <td>${homeBadge(r.isHome)}</td>
+    </tr>
+  `).join("") || `<tr><td colspan="4" class="small">登録された安否情報はまだありません。</td></tr>`;
+  const arrow = dir => dir===1 ? "▲" : "▼";
+  return `
+    <div class="card">
+      <h2>みんなの安否情報</h2>
+      <p class="small">氏名・避難場所・被災状況・帰宅状況のみ表示されます。連絡先や備考などの個人情報は表示されません。</p>
+      <table>
+        <thead><tr>
+          <th style="cursor:pointer;" onclick="sortOthers('name')">氏名 ${othersSort==='name' ? arrow(othersSortDir) : ''}</th>
+          <th style="cursor:pointer;" onclick="sortOthers('shelter')">避難場所 ${othersSort==='shelter' ? arrow(othersSortDir) : ''}</th>
+          <th>被災状況</th><th>所在</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
+  `;
+}
+function sortOthers(key){
+  if(othersSort === key){ othersSortDir *= -1; }
+  else { othersSort = key; othersSortDir = 1; }
+  render();
+}
+
+/* ---- 避難所の空き状況 ---- */
+function sheltersHtml(){
+  const boxes = db.shelters.map(s=>{
+    const count = db.residents.filter(r=>r.shelterId===s.id && !r.isHome).length;
+    const pct = Math.min(100, Math.round((count / s.capacity) * 100));
+    const full = count >= s.capacity;
+    return `
+      <div class="shelter-box">
+        <h3>${s.name} ${full?'<span class="badge danger">満員</span>':''}</h3>
+        <div class="small">定員 ${s.capacity}人 / 現在 ${count}人 (空き ${Math.max(0,s.capacity-count)}人)</div>
+        <div class="bar-bg"><div class="bar-fill" style="width:${pct}%;background:${full?'#dc2626':'#2563eb'}"></div></div>
+      </div>
+    `;
+  }).join("");
+  return `
+    <div class="card">
+      <h2>避難所の空き状況</h2>
+      <p class="small">帰宅済みの方は現在人数に含みません。</p>
+      <div class="shelter-grid">${boxes}</div>
+    </div>
+  `;
+}
+
+/* ---- 物資の要望(ユーザーごとに現在の要望を1件だけ保持し、送信のたびに上書き更新する) ---- */
+function mySupplyRequest(){ return db.supplyRequests.find(r=>r.userId===session.userId); }
+
+function supplyHtml(){
+  const existing = mySupplyRequest();
+  const checks = SUPPLY_ITEMS.map(item => `
+    <label><input type="checkbox" name="supply-item" value="${item}" ${existing && existing.items.includes(item) ? 'checked':''}> ${item}</label>
+  `).join("");
+  const shelterOptions = db.shelters.map(s=>`<option value="${s.id}" ${existing && existing.shelterId===s.id ? 'selected':''}>${s.name}</option>`).join("");
+
+  return `
+    <div class="card">
+      <h2>不足している物資の要望</h2>
+      <p class="small">要望は常に最新の内容だけが保存されます。内容が変わったら、同じフォームを更新して再送信してください。</p>
+      <label>対象の避難所</label>
+      <select id="supply-shelter">${shelterOptions}</select>
+      <label>不足している物資(複数選択可)</label>
+      <div class="checkbox-group">${checks}</div>
+      <label>詳細・その他の要望</label>
+      <textarea id="supply-note" placeholder="数量、サイズ、緊急度など">${existing ? escapeHtml(existing.note||'') : ''}</textarea>
+      <button class="btn" onclick="saveSupplyRequest()">${existing ? "要望を更新する" : "要望を送信する"}</button>
+      ${existing ? `<button class="btn secondary" onclick="clearSupplyRequest()">要望を取り下げる</button>` : ""}
+      ${existing ? `<p class="small">最終更新: ${new Date(existing.timestamp).toLocaleString()}</p>` : ""}
+    </div>
+  `;
+}
+function saveSupplyRequest(){
+  const checked = Array.from(document.querySelectorAll('input[name="supply-item"]:checked')).map(el=>el.value);
+  const note = document.getElementById("supply-note").value.trim();
+  if(checked.length===0 && !note){ alert("項目を選択するか、詳細を入力してください。"); return; }
+  const data = {
+    shelterId: document.getElementById("supply-shelter").value,
+    items: checked,
+    note,
+    timestamp: Date.now(),
+  };
+  const existing = mySupplyRequest();
+  if(existing){
+    Object.assign(existing, data);
+  } else {
+    db.supplyRequests.push({ id: uid("s"), userId: session.userId, ...data });
+  }
+  saveDB(db);
+  render();
+}
+function clearSupplyRequest(){
+  db.supplyRequests = db.supplyRequests.filter(r=>r.userId!==session.userId);
+  saveDB(db);
+  render();
+}
+
+/* ---------- 管理者画面 ---------- */
+let adminTab = "residents"; // residents | shelters | supply
+function renderAdmin(){
+  app.innerHTML = `
+    <header>
+      <h1>避難所運営システム(管理者)</h1>
+      <div class="userinfo">
+        <span>admin</span>
+        <button onclick="logout()">ログアウト</button>
+      </div>
+    </header>
+    <div class="container">
+      <div class="tabs">
+        <div class="tab ${adminTab==='residents'?'active':''}" onclick="setAdminTab('residents')">避難者の全情報</div>
+        <div class="tab ${adminTab==='shelters'?'active':''}" onclick="setAdminTab('shelters')">避難所の空き状況</div>
+        <div class="tab ${adminTab==='supply'?'active':''}" onclick="setAdminTab('supply')">物資の要望一覧</div>
+      </div>
+      <div id="tab-content"></div>
+    </div>
+  `;
+  const content = document.getElementById("tab-content");
+  if(adminTab==='residents') content.innerHTML = adminResidentsHtml();
+  if(adminTab==='shelters') content.innerHTML = adminSheltersHtml();
+  if(adminTab==='supply') content.innerHTML = adminSupplyHtml();
+}
+function setAdminTab(t){ adminTab = t; render(); }
+
+/* ---- CSV出力 ---- */
+function toCSV(headers, rows){
+  const escapeCell = v => {
+    const s = (v===undefined || v===null) ? "" : String(v);
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g,'""')}"` : s;
+  };
+  const lines = [headers, ...rows].map(row => row.map(escapeCell).join(","));
+  return "﻿" + lines.join("\r\n");
+}
+function downloadCSV(filename, csvContent){
+  const blob = new Blob([csvContent], {type:"text/csv;charset=utf-8;"});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+function exportResidentsCSV(){
+  const headers = ["氏名","年齢","性別","避難所","被災状況","所在","要配慮者","連絡先","備考","登録アカウント"];
+  const rows = db.residents.map(r=>{
+    const owner = db.users.find(u=>u.id===r.userId);
+    return [r.name, r.age, r.gender, shelterName(r.shelterId), r.status,
+      r.isHome ? "帰宅済み":"避難所に滞在中", (r.careTags||[]).join(" / "), r.phone||"", r.note||"", owner ? (owner.email||owner.phone) : ""];
+  });
+  downloadCSV("避難者情報.csv", toCSV(headers, rows));
+}
+function exportSheltersCSV(){
+  const headers = ["避難所名","定員","現在人数","空き人数"];
+  const rows = db.shelters.map(s=>{
+    const count = db.residents.filter(r=>r.shelterId===s.id && !r.isHome).length;
+    return [s.name, s.capacity, count, Math.max(0, s.capacity-count)];
+  });
+  downloadCSV("避難所の空き状況.csv", toCSV(headers, rows));
+}
+function exportSupplyCSV(){
+  const headers = ["最終更新","避難所","要望項目","詳細","登録アカウント"];
+  const rows = db.supplyRequests.map(r=>{
+    const owner = db.users.find(u=>u.id===r.userId);
+    return [new Date(r.timestamp).toLocaleString(), shelterName(r.shelterId), r.items.join(" / "), r.note||"", owner ? (owner.email||owner.phone) : ""];
+  });
+  downloadCSV("物資の要望一覧.csv", toCSV(headers, rows));
+}
+function adminSheltersHtml(){
+  return `<div style="margin-bottom:12px;text-align:right;"><button class="btn secondary" style="margin:0;" onclick="exportSheltersCSV()">CSVダウンロード</button></div>` + sheltersHtml();
+}
+
+function adminResidentsHtml(){
+  const rows = db.residents.map(r=>{
+    const owner = db.users.find(u=>u.id===r.userId);
+    return `
+    <tr>
+      <td>${escapeHtml(r.name)}</td>
+      <td>${r.age}</td>
+      <td>${r.gender}</td>
+      <td>${shelterName(r.shelterId)}</td>
+      <td>${statusBadge(r.status)}</td>
+      <td>${homeBadge(r.isHome)}</td>
+      <td>${careBadges(r.careTags)}</td>
+      <td>${r.phone||'-'}</td>
+      <td>${escapeHtml(r.note||'-')}</td>
+      <td class="small">${owner ? (owner.email||owner.phone) : '-'}</td>
+      <td><button class="btn danger" style="margin:0;padding:4px 8px;font-size:12px;" onclick="adminRemoveResident('${r.id}')">削除</button></td>
+    </tr>
+  `;}).join("") || `<tr><td colspan="11" class="small">データがありません。</td></tr>`;
+
+  return `
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <h2 style="margin:0;">避難者の全情報</h2>
+        <button class="btn secondary" style="margin:0;" onclick="exportResidentsCSV()">CSVダウンロード</button>
+      </div>
+      <div style="overflow-x:auto;">
+      <table>
+        <thead><tr>
+          <th>氏名</th><th>年齢</th><th>性別</th><th>避難所</th>
+          <th>被災状況</th><th>所在</th><th>要配慮者</th><th>連絡先</th><th>備考</th><th>登録アカウント</th><th></th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+      </div>
+    </div>
+  `;
+}
+function adminRemoveResident(id){
+  if(!confirm("この避難者情報を削除しますか？")) return;
+  db.residents = db.residents.filter(r=>r.id!==id);
+  saveDB(db);
+  render();
+}
+
+function adminSupplyHtml(){
+  const rows = db.supplyRequests.slice().reverse().map(r=>{
+    const owner = db.users.find(u=>u.id===r.userId);
+    return `
+    <tr>
+      <td>${new Date(r.timestamp).toLocaleString()}</td>
+      <td>${shelterName(r.shelterId)}</td>
+      <td>${r.items.join(", ")||'-'}</td>
+      <td>${escapeHtml(r.note||'-')}</td>
+      <td class="small">${owner ? (owner.email||owner.phone) : '-'}</td>
+    </tr>
+  `;}).join("") || `<tr><td colspan="5" class="small">要望はまだありません。</td></tr>`;
+
+  return `
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <h2 style="margin:0;">物資の要望一覧(ユーザーごとの最新の要望)</h2>
+        <button class="btn secondary" style="margin:0;" onclick="exportSupplyCSV()">CSVダウンロード</button>
+      </div>
+      <div style="overflow-x:auto;">
+      <table>
+        <thead><tr><th>最終更新</th><th>避難所</th><th>要望項目</th><th>詳細</th><th>登録アカウント</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+      </div>
+    </div>
+  `;
+}
+
+/* ---------- ユーティリティ ---------- */
+function escapeHtml(str){
+  return String(str).replace(/[&<>"']/g, s => ({
+    "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"
+  }[s]));
+}
+</script>
+</body>
+</html>
