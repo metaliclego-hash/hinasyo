@@ -128,10 +128,10 @@ const INITIAL_DB = {
   supplyRequests: [],
   notices: [],
   shelters: [
-    {id:"A", name:"避難所A", capacity:50},
-    {id:"B", name:"避難所B", capacity:80},
-    {id:"C", name:"避難所C", capacity:30},
-    {id:"D", name:"避難所D", capacity:100},
+    {id:"A", name:"避難所A", capacity:50, address:""},
+    {id:"B", name:"避難所B", capacity:80, address:""},
+    {id:"C", name:"避難所C", capacity:30, address:""},
+    {id:"D", name:"避難所D", capacity:100, address:""},
   ]
 };
 let db = null;
@@ -471,11 +471,17 @@ function sheltersHtml(){
     const count = db.residents.filter(r=>r.shelterId===s.id && !r.isHome).length;
     const pct = Math.min(100, Math.round((count / s.capacity) * 100));
     const full = count >= s.capacity;
+    const mapEmbed = s.address ? `
+        <iframe src="https://www.google.com/maps?q=${encodeURIComponent(s.address)}&output=embed"
+          style="width:100%;height:150px;border:0;border-radius:6px;margin-top:8px;" loading="lazy"></iframe>
+      ` : "";
     return `
       <div class="shelter-box">
         <h3>${s.name} ${full?'<span class="badge danger">満員</span>':''}</h3>
         <div class="small">定員 ${s.capacity}人 / 現在 ${count}人 (空き ${Math.max(0,s.capacity-count)}人)</div>
         <div class="bar-bg"><div class="bar-fill" style="width:${pct}%;background:${full?'#dc2626':'#2563eb'}"></div></div>
+        ${s.address ? `<div class="small" style="margin-top:6px;">${escapeHtml(s.address)}</div>` : ""}
+        ${mapEmbed}
       </div>
     `;
   }).join("");
@@ -614,10 +620,10 @@ function exportResidentsCSV(){
   downloadCSV("避難者情報.csv", toCSV(headers, rows));
 }
 function exportSheltersCSV(){
-  const headers = ["避難所名","定員","現在人数","空き人数"];
+  const headers = ["避難所名","定員","現在人数","空き人数","住所"];
   const rows = db.shelters.map(s=>{
     const count = db.residents.filter(r=>r.shelterId===s.id && !r.isHome).length;
-    return [s.name, s.capacity, count, Math.max(0, s.capacity-count)];
+    return [s.name, s.capacity, count, Math.max(0, s.capacity-count), s.address||""];
   });
   downloadCSV("避難所の空き状況.csv", toCSV(headers, rows));
 }
@@ -635,6 +641,7 @@ function adminSheltersHtml(){
       <div class="row">
         <div><label>避難所名</label><input type="text" id="edit-shelter-name-${s.id}" value="${escapeHtml(s.name)}"></div>
         <div><label>定員</label><input type="number" id="edit-shelter-capacity-${s.id}" min="1" value="${s.capacity}"></div>
+        <div><label>住所(地図表示用、任意)</label><input type="text" id="edit-shelter-address-${s.id}" value="${escapeHtml(s.address||'')}" placeholder="例: 東京都千代田区千代田1-1"></div>
         <div style="display:flex;align-items:flex-end;gap:8px;">
           <button class="btn" style="margin:0;" onclick="adminUpdateShelter('${s.id}')">更新する</button>
           <button class="link-btn" style="color:var(--danger);" onclick="adminRemoveShelter('${s.id}')">削除</button>
@@ -655,6 +662,7 @@ function adminSheltersHtml(){
       <div class="row">
         <div><label>避難所名</label><input type="text" id="new-shelter-name" placeholder="例: 避難所E"></div>
         <div><label>定員</label><input type="number" id="new-shelter-capacity" min="1" placeholder="例: 50"></div>
+        <div><label>住所(地図表示用、任意)</label><input type="text" id="new-shelter-address" placeholder="例: 東京都千代田区千代田1-1"></div>
       </div>
       <button class="btn" onclick="adminAddShelter()">追加する</button>
       <div id="shelter-error" class="error"></div>
@@ -666,12 +674,14 @@ function adminSheltersHtml(){
 function adminUpdateShelter(id){
   const name = document.getElementById(`edit-shelter-name-${id}`).value.trim();
   const capacity = parseInt(document.getElementById(`edit-shelter-capacity-${id}`).value, 10);
+  const address = document.getElementById(`edit-shelter-address-${id}`).value.trim();
   const err = document.getElementById("shelter-edit-error");
   if(!name){ err.textContent = "避難所名を入力してください。"; return; }
   if(!capacity || capacity < 1){ err.textContent = "定員は1以上の数値を入力してください。"; return; }
   const shelter = db.shelters.find(s=>s.id===id);
   shelter.name = name;
   shelter.capacity = capacity;
+  shelter.address = address;
   saveDB(db);
   render();
 }
@@ -688,10 +698,11 @@ function adminRemoveShelter(id){
 function adminAddShelter(){
   const name = document.getElementById("new-shelter-name").value.trim();
   const capacity = parseInt(document.getElementById("new-shelter-capacity").value, 10);
+  const address = document.getElementById("new-shelter-address").value.trim();
   const err = document.getElementById("shelter-error");
   if(!name){ err.textContent = "避難所名を入力してください。"; return; }
   if(!capacity || capacity < 1){ err.textContent = "定員は1以上の数値を入力してください。"; return; }
-  db.shelters.push({ id: uid("shelter"), name, capacity });
+  db.shelters.push({ id: uid("shelter"), name, capacity, address });
   saveDB(db);
   render();
 }
