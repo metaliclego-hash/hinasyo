@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>避難所運営システム(デモ)</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 <style>
   :root{
     --primary:#2563eb;
@@ -99,6 +100,9 @@
 <!-- Firebase (Firestore) SDK -->
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
+
+<!-- 地図表示 (Leaflet + OpenStreetMap、APIキー不要) -->
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
 <script>
 /* ===================== Firebase設定 =====================
@@ -283,7 +287,7 @@ function renderUser(){
   const content = document.getElementById("tab-content");
   if(userTab==='anpi') content.innerHTML = anpiFormHtml() + supplyHtml();
   if(userTab==='others') content.innerHTML = othersHtml();
-  if(userTab==='shelters') content.innerHTML = sheltersHtml();
+  if(userTab==='shelters'){ content.innerHTML = sheltersHtml(); initShelterMap(); }
   if(userTab==='notices') content.innerHTML = noticesHtml();
 }
 function setUserTab(t){ userTab = t; editingResidentId = null; render(); }
@@ -485,17 +489,12 @@ function sheltersHtml(){
     const count = db.residents.filter(r=>r.shelterId===s.id && !r.isHome).length;
     const pct = Math.min(100, Math.round((count / s.capacity) * 100));
     const full = count >= s.capacity;
-    const mapEmbed = s.address ? `
-        <iframe src="https://www.google.com/maps?q=${encodeURIComponent(s.address)}&output=embed"
-          style="width:100%;height:150px;border:0;border-radius:6px;margin-top:8px;" loading="lazy"></iframe>
-      ` : "";
     return `
       <div class="shelter-box">
         <h3>${s.name} ${full?'<span class="badge danger">満員</span>':''}</h3>
         <div class="small">定員 ${s.capacity}人 / 現在 ${count}人 (空き ${Math.max(0,s.capacity-count)}人)</div>
         <div class="bar-bg"><div class="bar-fill" style="width:${pct}%;background:${full?'#dc2626':'#2563eb'}"></div></div>
         ${s.address ? `<div class="small" style="margin-top:6px;">${escapeHtml(s.address)}</div>` : ""}
-        ${mapEmbed}
       </div>
     `;
   }).join("");
@@ -505,7 +504,62 @@ function sheltersHtml(){
       <p class="small">帰宅済みの方は現在人数に含みません。</p>
       <div class="shelter-grid">${boxes}</div>
     </div>
+    <div class="card">
+      <h2>地図</h2>
+      <p class="small">住所が登録されている避難所を1枚の地図にまとめて表示しています。</p>
+      <div id="shelter-map" style="height:400px;border-radius:8px;"></div>
+    </div>
   `;
+}
+
+/* ---- 地図の初期化・住所のジオコーディング(Nominatim/OpenStreetMap、APIキー不要) ---- */
+let shelterMapInstance = null;
+const geocodingInProgress = new Set();
+
+function initShelterMap(){
+  const container = document.getElementById("shelter-map");
+  if(!container) return;
+  if(shelterMapInstance){ shelterMapInstance.remove(); shelterMapInstance = null; }
+  shelterMapInstance = L.map(container).setView([35.681236, 139.767125], 11);
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    attribution: '&copy; OpenStreetMap contributors'
+  }).addTo(shelterMapInstance);
+
+  const markers = [];
+  function addShelterMarker(s){
+    const count = db.residents.filter(r=>r.shelterId===s.id && !r.isHome).length;
+    const marker = L.marker([s.lat, s.lng]).addTo(shelterMapInstance)
+      .bindPopup(`<b>${escapeHtml(s.name)}</b><br>定員${s.capacity}人 / 現在${count}人<br>${escapeHtml(s.address)}`);
+    markers.push(marker);
+    shelterMapInstance.fitBounds(L.featureGroup(markers).getBounds().pad(0.2));
+  }
+  db.shelters.forEach(s => {
+    if(!s.address) return;
+    if(s.lat!==undefined && s.lng!==undefined && s.geocodedAddress===s.address){
+      addShelterMarker(s);
+    } else {
+      geocodeShelterAddress(s);
+    }
+  });
+}
+
+function geocodeShelterAddress(s){
+  const key = s.id + "::" + s.address;
+  if(geocodingInProgress.has(key)) return;
+  geocodingInProgress.add(key);
+  fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(s.address)}`)
+    .then(res => res.json())
+    .then(results => {
+      geocodingInProgress.delete(key);
+      if(!results || results.length===0) return;
+      const shelter = db.shelters.find(x=>x.id===s.id);
+      if(!shelter || shelter.address !== s.address) return; // 住所が変更済みなら破棄
+      shelter.lat = parseFloat(results[0].lat);
+      shelter.lng = parseFloat(results[0].lon);
+      shelter.geocodedAddress = s.address;
+      saveDB(db);
+    })
+    .catch(() => { geocodingInProgress.delete(key); });
 }
 
 /* ---- お知らせ(管理者からの連絡事項) ---- */
@@ -598,7 +652,7 @@ function renderAdmin(){
   `;
   const content = document.getElementById("tab-content");
   if(adminTab==='residents') content.innerHTML = adminResidentsHtml();
-  if(adminTab==='shelters') content.innerHTML = adminSheltersHtml();
+  if(adminTab==='shelters'){ content.innerHTML = adminSheltersHtml(); initShelterMap(); }
   if(adminTab==='supply') content.innerHTML = adminSupplyHtml();
   if(adminTab==='notices') content.innerHTML = adminNoticesHtml();
 }
