@@ -547,15 +547,17 @@ function geocodeShelterAddress(s){
   const key = s.id + "::" + s.address;
   if(geocodingInProgress.has(key)) return;
   geocodingInProgress.add(key);
-  fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(s.address)}`)
+  // 国土地理院(GSI)の住所検索API。日本の住所を番地レベルまで精度良くジオコーディングできる無料API。
+  fetch(`https://msearch.gsi.go.jp/address-search/AddressSearch?q=${encodeURIComponent(s.address)}`)
     .then(res => res.json())
     .then(results => {
       geocodingInProgress.delete(key);
       if(!results || results.length===0) return;
       const shelter = db.shelters.find(x=>x.id===s.id);
       if(!shelter || shelter.address !== s.address) return; // 住所が変更済みなら破棄
-      shelter.lat = parseFloat(results[0].lat);
-      shelter.lng = parseFloat(results[0].lon);
+      const [lng, lat] = results[0].geometry.coordinates;
+      shelter.lat = lat;
+      shelter.lng = lng;
       shelter.geocodedAddress = s.address;
       saveDB(db);
     })
