@@ -126,6 +126,7 @@ const INITIAL_DB = {
   users: [],
   residents: [],
   supplyRequests: [],
+  notices: [],
   shelters: [
     {id:"A", name:"避難所A", capacity:50},
     {id:"B", name:"避難所B", capacity:80},
@@ -193,7 +194,6 @@ function renderAuth(){
         </div>
         ${authMode==='login' ? loginFormHtml() : signupFormHtml()}
         <div id="auth-error" class="error"></div>
-        <p class="small">管理者ログイン: ユーザー名 <b>admin</b> / パスワード <b>admin</b></p>
       </div>
     </div>
   `;
@@ -209,10 +209,8 @@ function loginFormHtml(){
 }
 function signupFormHtml(){
   return `
-    <label>メールアドレス</label>
-    <input type="email" id="signup-email" placeholder="example@mail.com">
-    <label>電話番号(どちらか入力でOK)</label>
-    <input type="tel" id="signup-phone" placeholder="090xxxxxxxx">
+    <label>メールアドレス または 電話番号</label>
+    <input type="text" id="signup-contact" placeholder="example@mail.com または 090xxxxxxxx">
     <label>パスワード(4文字以上)</label>
     <input type="password" id="signup-pw" placeholder="4文字以上">
     <button class="btn" onclick="doSignup()">登録する</button>
@@ -237,12 +235,14 @@ function doLogin(){
   render();
 }
 function doSignup(){
-  const email = document.getElementById("signup-email").value.trim();
-  const phone = document.getElementById("signup-phone").value.trim();
+  const contact = document.getElementById("signup-contact").value.trim();
   const pw = document.getElementById("signup-pw").value;
   const err = document.getElementById("auth-error");
-  if(!email && !phone){ err.textContent = "メールか電話番号のどちらかを入力してください。"; return; }
+  if(!contact){ err.textContent = "メールアドレスか電話番号を入力してください。"; return; }
   if(pw.length < 4){ err.textContent = "パスワードは4文字以上にしてください。"; return; }
+  const isEmail = contact.includes("@");
+  const email = isEmail ? contact : "";
+  const phone = isEmail ? "" : contact;
   if(db.users.some(u => (email && u.email===email) || (phone && u.phone===phone))){
     err.textContent = "すでに登録されているメール/電話番号です。";
     return;
@@ -275,6 +275,7 @@ function renderUser(){
         <div class="tab ${userTab==='anpi'?'active':''}" onclick="setUserTab('anpi')">安否情報</div>
         <div class="tab ${userTab==='others'?'active':''}" onclick="setUserTab('others')">みんなの安否情報</div>
         <div class="tab ${userTab==='shelters'?'active':''}" onclick="setUserTab('shelters')">避難所の空き状況</div>
+        <div class="tab ${userTab==='notices'?'active':''}" onclick="setUserTab('notices')">お知らせ</div>
       </div>
       <div id="tab-content"></div>
     </div>
@@ -283,6 +284,7 @@ function renderUser(){
   if(userTab==='anpi') content.innerHTML = anpiFormHtml() + supplyHtml();
   if(userTab==='others') content.innerHTML = othersHtml();
   if(userTab==='shelters') content.innerHTML = sheltersHtml();
+  if(userTab==='notices') content.innerHTML = noticesHtml();
 }
 function setUserTab(t){ userTab = t; editingResidentId = null; render(); }
 
@@ -486,6 +488,22 @@ function sheltersHtml(){
   `;
 }
 
+/* ---- お知らせ(管理者からの連絡事項) ---- */
+function noticesHtml(){
+  const notices = (db.notices||[]).slice().reverse().map(n=>`
+    <div class="family-item">
+      <div>${escapeHtml(n.text)}</div>
+      <div class="small" style="margin-top:6px;">${new Date(n.timestamp).toLocaleString()}</div>
+    </div>
+  `).join("") || `<p class="small">お知らせはまだありません。</p>`;
+  return `
+    <div class="card">
+      <h2>お知らせ</h2>
+      ${notices}
+    </div>
+  `;
+}
+
 /* ---- 物資の要望(ユーザーごとに現在の要望を1件だけ保持し、送信のたびに上書き更新する) ---- */
 function mySupplyRequest(){ return db.supplyRequests.find(r=>r.userId===session.userId); }
 
@@ -553,6 +571,7 @@ function renderAdmin(){
         <div class="tab ${adminTab==='residents'?'active':''}" onclick="setAdminTab('residents')">避難者の全情報</div>
         <div class="tab ${adminTab==='shelters'?'active':''}" onclick="setAdminTab('shelters')">避難所の空き状況</div>
         <div class="tab ${adminTab==='supply'?'active':''}" onclick="setAdminTab('supply')">物資の要望一覧</div>
+        <div class="tab ${adminTab==='notices'?'active':''}" onclick="setAdminTab('notices')">お知らせ管理</div>
       </div>
       <div id="tab-content"></div>
     </div>
@@ -561,6 +580,7 @@ function renderAdmin(){
   if(adminTab==='residents') content.innerHTML = adminResidentsHtml();
   if(adminTab==='shelters') content.innerHTML = adminSheltersHtml();
   if(adminTab==='supply') content.innerHTML = adminSupplyHtml();
+  if(adminTab==='notices') content.innerHTML = adminNoticesHtml();
 }
 function setAdminTab(t){ adminTab = t; render(); }
 
@@ -610,7 +630,29 @@ function exportSupplyCSV(){
   downloadCSV("物資の要望一覧.csv", toCSV(headers, rows));
 }
 function adminSheltersHtml(){
-  return `<div style="margin-bottom:12px;text-align:right;"><button class="btn secondary" style="margin:0;" onclick="exportSheltersCSV()">CSVダウンロード</button></div>` + sheltersHtml();
+  const addForm = `
+    <div class="card">
+      <h2>避難所を追加する</h2>
+      <div class="row">
+        <div><label>避難所名</label><input type="text" id="new-shelter-name" placeholder="例: 避難所E"></div>
+        <div><label>定員</label><input type="number" id="new-shelter-capacity" min="1" placeholder="例: 50"></div>
+      </div>
+      <button class="btn" onclick="adminAddShelter()">追加する</button>
+      <div id="shelter-error" class="error"></div>
+    </div>
+  `;
+  return `<div style="margin-bottom:12px;text-align:right;"><button class="btn secondary" style="margin:0;" onclick="exportSheltersCSV()">CSVダウンロード</button></div>`
+    + addForm + sheltersHtml();
+}
+function adminAddShelter(){
+  const name = document.getElementById("new-shelter-name").value.trim();
+  const capacity = parseInt(document.getElementById("new-shelter-capacity").value, 10);
+  const err = document.getElementById("shelter-error");
+  if(!name){ err.textContent = "避難所名を入力してください。"; return; }
+  if(!capacity || capacity < 1){ err.textContent = "定員は1以上の数値を入力してください。"; return; }
+  db.shelters.push({ id: uid("shelter"), name, capacity });
+  saveDB(db);
+  render();
 }
 
 function adminResidentsHtml(){
@@ -684,6 +726,47 @@ function adminSupplyHtml(){
       </div>
     </div>
   `;
+}
+
+function adminNoticesHtml(){
+  const notices = (db.notices||[]).slice().reverse().map(n=>`
+    <div class="family-item">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;">
+        <div>${escapeHtml(n.text)}</div>
+        <button class="link-btn" style="color:var(--danger);white-space:nowrap;" onclick="adminRemoveNotice('${n.id}')">削除</button>
+      </div>
+      <div class="small" style="margin-top:6px;">${new Date(n.timestamp).toLocaleString()}</div>
+    </div>
+  `).join("") || `<p class="small">お知らせはまだありません。</p>`;
+
+  return `
+    <div class="card">
+      <h2>連絡事項を追加する</h2>
+      <label>内容</label>
+      <textarea id="new-notice-text" placeholder="例: 本日18時に物資の配布を行います。"></textarea>
+      <button class="btn" onclick="adminAddNotice()">追加する</button>
+      <div id="notice-error" class="error"></div>
+    </div>
+    <div class="card">
+      <h2>お知らせ一覧</h2>
+      ${notices}
+    </div>
+  `;
+}
+function adminAddNotice(){
+  const text = document.getElementById("new-notice-text").value.trim();
+  const err = document.getElementById("notice-error");
+  if(!text){ err.textContent = "内容を入力してください。"; return; }
+  if(!db.notices) db.notices = [];
+  db.notices.push({ id: uid("n"), text, timestamp: Date.now() });
+  saveDB(db);
+  render();
+}
+function adminRemoveNotice(id){
+  if(!confirm("このお知らせを削除しますか？")) return;
+  db.notices = (db.notices||[]).filter(n=>n.id!==id);
+  saveDB(db);
+  render();
 }
 
 /* ---------- ユーティリティ ---------- */
