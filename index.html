@@ -630,6 +630,25 @@ function exportSupplyCSV(){
   downloadCSV("物資の要望一覧.csv", toCSV(headers, rows));
 }
 function adminSheltersHtml(){
+  const editRows = db.shelters.map(s => `
+    <div class="family-item">
+      <div class="row">
+        <div><label>避難所名</label><input type="text" id="edit-shelter-name-${s.id}" value="${escapeHtml(s.name)}"></div>
+        <div><label>定員</label><input type="number" id="edit-shelter-capacity-${s.id}" min="1" value="${s.capacity}"></div>
+        <div style="display:flex;align-items:flex-end;gap:8px;">
+          <button class="btn" style="margin:0;" onclick="adminUpdateShelter('${s.id}')">更新する</button>
+          <button class="link-btn" style="color:var(--danger);" onclick="adminRemoveShelter('${s.id}')">削除</button>
+        </div>
+      </div>
+    </div>
+  `).join("");
+  const editSection = `
+    <div class="card">
+      <h2>避難所を編集する</h2>
+      ${editRows}
+      <div id="shelter-edit-error" class="error"></div>
+    </div>
+  `;
   const addForm = `
     <div class="card">
       <h2>避難所を追加する</h2>
@@ -642,7 +661,29 @@ function adminSheltersHtml(){
     </div>
   `;
   return `<div style="margin-bottom:12px;text-align:right;"><button class="btn secondary" style="margin:0;" onclick="exportSheltersCSV()">CSVダウンロード</button></div>`
-    + addForm + sheltersHtml();
+    + editSection + addForm + sheltersHtml();
+}
+function adminUpdateShelter(id){
+  const name = document.getElementById(`edit-shelter-name-${id}`).value.trim();
+  const capacity = parseInt(document.getElementById(`edit-shelter-capacity-${id}`).value, 10);
+  const err = document.getElementById("shelter-edit-error");
+  if(!name){ err.textContent = "避難所名を入力してください。"; return; }
+  if(!capacity || capacity < 1){ err.textContent = "定員は1以上の数値を入力してください。"; return; }
+  const shelter = db.shelters.find(s=>s.id===id);
+  shelter.name = name;
+  shelter.capacity = capacity;
+  saveDB(db);
+  render();
+}
+function adminRemoveShelter(id){
+  if(db.residents.some(r=>r.shelterId===id)){
+    alert("この避難所には避難者が登録されているため削除できません。");
+    return;
+  }
+  if(!confirm("この避難所を削除しますか？")) return;
+  db.shelters = db.shelters.filter(s=>s.id!==id);
+  saveDB(db);
+  render();
 }
 function adminAddShelter(){
   const name = document.getElementById("new-shelter-name").value.trim();
